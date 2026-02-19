@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/ws_server.dart';
 import 'dart:io';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class HostPage extends StatefulWidget {
   const HostPage({super.key});
@@ -18,57 +17,29 @@ class _HostPageState extends State<HostPage> {
   String _status = "พร้อมใช้งาน";
   String? _latestBarcode;
 
-  static const String _kSavedIpKey = 'saved_host_ip';
-
   @override
   void initState() {
     super.initState();
     _init();
   }
 
-  Future<void> _loadSavedIp() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString(_kSavedIpKey);
-    if (!mounted) return;
-    if (saved != null && saved.isNotEmpty) {
-      setState(() => _ip = saved);
-    }
-  }
-
-  Future<void> _saveIp(String ip) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kSavedIpKey, ip);
-  }
-
-  Future<String?> _findLocalIPv4() async {
+  Future<void> _init() async {
     final interfaces = await NetworkInterface.list(
       type: InternetAddressType.IPv4,
       includeLoopback: false,
     );
 
+    // เลือก IP ตัวแรกที่เป็น IPv4 และไม่ใช่ loopback
     for (final interface in interfaces) {
       for (final addr in interface.addresses) {
         if (!addr.isLoopback) {
-          return addr.address;
+          _ip = addr.address;
+          break;
         }
       }
-    }
-    return null;
-  }
-
-  Future<void> _init() async {
-    // 1) โหลด IP ที่เคยบันทึกไว้ก่อน (โชว์ทันที)
-    await _loadSavedIp();
-
-    // 2) หา IP จริงจาก network แล้วเซฟทับ
-    final realIp = await _findLocalIPv4();
-    if (realIp != null) {
-      if (!mounted) return;
-      setState(() => _ip = realIp);
-      await _saveIp(realIp);
+      if (_ip != null) break;
     }
 
-    // 3) start server
     await _server.start(_port);
 
     _server.messageStream.listen((msg) {
@@ -82,7 +53,9 @@ class _HostPageState extends State<HostPage> {
     });
 
     if (!mounted) return;
-    setState(() => _status = "พร้อมใช้งาน");
+    setState(() {
+      _status = "พร้อมใช้งาน";
+    });
   }
 
   @override
@@ -99,12 +72,13 @@ class _HostPageState extends State<HostPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // ===== Top row: IP / PORT / STATUS (same size) =====
             Row(
               children: [
                 Expanded(
                   flex: 5,
                   child: Text(
-                    "IP: ${_ip ?? '-'}",
+                    "IP: ${_ip ?? '- ปิดโปรแกรมแล้วเปิดใหม่'}",
                     style: headerStyle,
                   ),
                 ),
@@ -129,6 +103,7 @@ class _HostPageState extends State<HostPage> {
 
             const SizedBox(height: 18),
 
+            // ===== S/N row =====
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -138,6 +113,7 @@ class _HostPageState extends State<HostPage> {
                 ),
                 const SizedBox(width: 14),
 
+                // ช่องแสดงเลข (อ่านอย่างเดียว)
                 Expanded(
                   child: Container(
                     height: 54,
@@ -150,7 +126,7 @@ class _HostPageState extends State<HostPage> {
                     ),
                     child: Text(
                       (_latestBarcode == null || _latestBarcode!.isEmpty)
-                          ? "----------"
+                          ? "----------" // placeholder 10 ตัว
                           : _latestBarcode!,
                       style: const TextStyle(
                         fontSize: 22,
@@ -164,25 +140,11 @@ class _HostPageState extends State<HostPage> {
             ),
 
             const SizedBox(height: 12),
+
+            // hint เล็กน้อย (ถ้าอยากเอาออกก็ลบได้)
             Text(
               "รอรับข้อมูลจาก Scanner (ครบ 10 ตัวจะขึ้นทันที)",
               style: TextStyle(color: Colors.black.withOpacity(0.55)),
-            ),
-
-            const SizedBox(height: 12),
-
-            // ปุ่มรีเฟรช IP เผื่อเปลี่ยนวง / เปลี่ยนสาย
-            OutlinedButton.icon(
-              onPressed: () async {
-                final ip = await _findLocalIPv4();
-                if (ip != null) {
-                  if (!mounted) return;
-                  setState(() => _ip = ip);
-                  await _saveIp(ip);
-                }
-              },
-              icon: const Icon(Icons.refresh),
-              label: const Text("รีเฟรช IP"),
             ),
           ],
         ),
