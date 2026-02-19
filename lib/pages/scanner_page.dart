@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/io.dart';
 import 'dart:convert';
-import '../services/pairing.dart';
+import 'package:flutter/services.dart';
 
 class ScannerPage extends StatefulWidget {
   const ScannerPage({super.key});
@@ -11,43 +11,45 @@ class ScannerPage extends StatefulWidget {
 }
 
 class _ScannerPageState extends State<ScannerPage> {
-  final TextEditingController _roomCtrl = TextEditingController();
-  final TextEditingController _ipTailCtrl = TextEditingController();
+  final TextEditingController _ipCtrl = TextEditingController();
   final TextEditingController _barcodeCtrl = TextEditingController();
 
   IOWebSocketChannel? _channel;
   bool _connected = false;
   String _status = "ยังไม่เชื่อมต่อ";
 
-  void _connect() {
-    final session = _roomCtrl.text.trim();
-    final tail = _ipTailCtrl.text.trim();
+  bool _sending = false; // กันส่งซ้ำตอนครบ 10 แล้ว event ยิงรัว
 
-    if (session.isEmpty || tail.isEmpty) {
-      setState(() => _status = "กรอก Room Code และ IP ก่อน");
+  void _connect() {
+    final ip = _ipCtrl.text.trim();
+
+    if (ip.isEmpty) {
+      setState(() => _status = "กรอก IP ก่อน");
       return;
     }
 
-    final ip = "192.168.1.$tail";
-    final uri = Pairing.makeWsUri(ip: ip, port: 8090, session: session);
+    final uri = Uri.parse("ws://$ip:8090");
 
     try {
       _channel = IOWebSocketChannel.connect(uri);
 
       _channel!.stream.listen(
         (event) {
-          print("Server: $event");
+          // ถ้า server ส่งอะไรกลับมา จะเห็นตรงนี้
+          debugPrint("Server: $event");
         },
         onDone: () {
+          if (!mounted) return;
           setState(() {
             _connected = false;
             _status = "การเชื่อมต่อถูกปิด";
           });
         },
-        onError: (_) {
+        onError: (e) {
+          if (!mounted) return;
           setState(() {
             _connected = false;
-            _status = "เชื่อมต่อไม่สำเร็จ";
+            _status = "เชื่อมต่อไม่สำเร็จ: $e";
           });
         },
       );
@@ -56,36 +58,44 @@ class _ScannerPageState extends State<ScannerPage> {
         _connected = true;
         _status = "เชื่อมต่อแล้ว";
       });
-
     } catch (e) {
       setState(() => _status = "เชื่อมต่อไม่สำเร็จ: $e");
     }
   }
 
-  void _send() {
-    if (!_connected) return;
+  void _tryAutoSend(String value) {
+    if (!_connected || _channel == null) return;
 
-    final text = _barcodeCtrl.text.trim();
-    if (text.isEmpty) return;
+    final v = value.trim();
 
-    _channel?.sink.add(jsonEncode({
-      "barcode": text,
+    // ต้องเป็นเลข 10 ตัวพอดี
+    final isTenDigits = RegExp(r'^\d{10}$').hasMatch(v);
+    if (!isTenDigits) return;
+
+    // กันซ้ำ
+    if (_sending) return;
+    _sending = true;
+
+    _channel!.sink.add(jsonEncode({
+      "barcode": v,
       "ts": DateTime.now().toIso8601String(),
       "sender": "mobile"
     }));
 
-    setState(() {
-      _status = "ส่งแล้ว: $text";
-    });
+    if (!mounted) return;
+    setState(() => _status = "ส่งแล้ว: $v");
 
+    // เคลียร์เพื่อยิงต่อ
     _barcodeCtrl.clear();
+
+    // ปลดล็อกหลัง microtask
+    Future.microtask(() => _sending = false);
   }
 
   @override
   void dispose() {
     _channel?.sink.close();
-    _roomCtrl.dispose();
-    _ipTailCtrl.dispose();
+    _ipCtrl.dispose();
     _barcodeCtrl.dispose();
     super.dispose();
   }
@@ -100,58 +110,48 @@ class _ScannerPageState extends State<ScannerPage> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            // ===== Connection Form =====
             TextField(
-              controller: _roomCtrl,
+              controller: _ipCtrl,
               decoration: const InputDecoration(
-                labelText: "Room Code",
+                labelText: "IP (เช่น 192.168.0.106)",
                 border: OutlineInputBorder(),
               ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _ipTailCtrl,
-              decoration: const InputDecoration(
-                labelText: "IP ตัวท้าย (เช่น 24)",
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
+              enabled: !_connected,
             ),
             const SizedBox(height: 10),
 
             ElevatedButton(
-              onPressed: _connect,
+              onPressed: _connected ? null : _connect,
               child: const Text("เชื่อมต่อ"),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
 
-            // ===== Status =====
             Text(
               _status,
               style: TextStyle(
                 fontSize: 18,
-                fontWeight:
-                    _connected ? FontWeight.bold : FontWeight.normal,
+                fontWeight: _connected ? FontWeight.bold : FontWeight.normal,
                 color: statusColor,
               ),
             ),
 
-            const SizedBox(height: 30),
+            const SizedBox(height: 20),
 
-            // ===== Barcode Sender =====
+            // ช่องกรอก/ยิงบาร์โค้ด: บังคับเลข 10 ตัว
             TextField(
               controller: _barcodeCtrl,
+              enabled: _connected,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(10),
+              ],
               decoration: const InputDecoration(
-                labelText: "กรอกบาร์โค้ด",
+                labelText: "กรอก/ยิง S/N (10 ตัวเลข) — ครบแล้วส่งทันที",
                 border: OutlineInputBorder(),
               ),
-            ),
-            const SizedBox(height: 10),
-
-            ElevatedButton(
-              onPressed: _connected ? _send : null,
-              child: const Text("ส่ง"),
+              onChanged: _tryAutoSend, // ✅ ครบ 10 ส่งทันที
             ),
           ],
         ),

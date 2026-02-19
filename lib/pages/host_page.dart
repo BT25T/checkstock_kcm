@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../services/pairing.dart';
 import '../services/ws_server.dart';
 import 'dart:io';
 
@@ -15,9 +14,8 @@ class _HostPageState extends State<HostPage> {
   final int _port = 8090;
 
   String? _ip;
-  String _session = Pairing.makeSessionCode();
-  String _status = "กำลังเริ่มระบบ...";
-  List<Map<String, dynamic>> _logs = [];
+  String _status = "พร้อมใช้งาน";
+  String? _latestBarcode;
 
   @override
   void initState() {
@@ -31,23 +29,30 @@ class _HostPageState extends State<HostPage> {
       includeLoopback: false,
     );
 
-    for (var i in interfaces) {
-      for (var addr in i.addresses) {
-        if (addr.address.startsWith("192.168.")) {
+    // เลือก IP ตัวแรกที่เป็น IPv4 และไม่ใช่ loopback
+    for (final interface in interfaces) {
+      for (final addr in interface.addresses) {
+        if (!addr.isLoopback) {
           _ip = addr.address;
+          break;
         }
       }
+      if (_ip != null) break;
     }
 
     await _server.start(_port);
 
     _server.messageStream.listen((msg) {
+      final bc = (msg["barcode"] ?? "").toString();
+      if (!mounted) return;
+
       setState(() {
-        _logs.insert(0, msg);
-        _status = "มีข้อมูลเข้าแล้ว!";
+        _latestBarcode = bc;
+        _status = "เชื่อมต่อแล้ว";
       });
     });
 
+    if (!mounted) return;
     setState(() {
       _status = "พร้อมใช้งาน";
     });
@@ -55,38 +60,92 @@ class _HostPageState extends State<HostPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool connected = _latestBarcode != null;
+    final Color statusColor = connected ? Colors.green : Colors.black;
+
+    const headerStyle = TextStyle(fontSize: 18, fontWeight: FontWeight.w600);
+
     return Scaffold(
       appBar: AppBar(title: const Text("HOST")),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text("IP: $_ip"),
-            Text("PORT: $_port"),
-            const SizedBox(height: 20),
-            Text(
-              "ROOM CODE",
-              style: const TextStyle(fontSize: 16),
+            // ===== Top row: IP / PORT / STATUS (same size) =====
+            Row(
+              children: [
+                Expanded(
+                  flex: 5,
+                  child: Text(
+                    "IP: ${_ip ?? '-'}",
+                    style: headerStyle,
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    "PORT: $_port",
+                    style: headerStyle,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                Expanded(
+                  flex: 4,
+                  child: Text(
+                    "STATUS: $_status",
+                    style: headerStyle.copyWith(color: statusColor),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+              ],
             ),
-            Text(
-              _session,
-              style: const TextStyle(
-                  fontSize: 36, fontWeight: FontWeight.bold),
+
+            const SizedBox(height: 18),
+
+            // ===== S/N row =====
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Text(
+                  "S/N number",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(width: 14),
+
+                // ช่องแสดงเลข (อ่านอย่างเดียว)
+                Expanded(
+                  child: Container(
+                    height: 54,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    alignment: Alignment.centerLeft,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.black26, width: 1.2),
+                      borderRadius: BorderRadius.circular(10),
+                      color: Colors.black.withOpacity(0.03),
+                    ),
+                    child: Text(
+                      (_latestBarcode == null || _latestBarcode!.isEmpty)
+                          ? "----------" // placeholder 10 ตัว
+                          : _latestBarcode!,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 20),
-            Text("STATUS: $_status"),
-            const SizedBox(height: 20),
-            const Text("LOGS"),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _logs.length,
-                itemBuilder: (_, i) {
-                  return ListTile(
-                    title: Text(_logs[i].toString()),
-                  );
-                },
-              ),
-            )
+
+            const SizedBox(height: 12),
+
+            // hint เล็กน้อย (ถ้าอยากเอาออกก็ลบได้)
+            Text(
+              "รอรับข้อมูลจาก Scanner (ครบ 10 ตัวจะขึ้นทันที)",
+              style: TextStyle(color: Colors.black.withOpacity(0.55)),
+            ),
           ],
         ),
       ),
