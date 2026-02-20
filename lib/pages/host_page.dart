@@ -5,6 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/services.dart';
+import 'dart:ffi';
+import 'package:ffi/ffi.dart';
+import 'package:win32/win32.dart';
 
 import '../services/ws_server.dart';
 
@@ -51,6 +55,10 @@ class _HostPageState extends State<HostPage> {
     }
   }
 
+  Future<void> _copySnToClipboard(String sn) async {
+    await Clipboard.setData(ClipboardData(text: sn));
+  }
+
   Future<void> _init() async {
     final interfaces = await NetworkInterface.list(
       type: InternetAddressType.IPv4,
@@ -88,6 +96,63 @@ class _HostPageState extends State<HostPage> {
     });
   }
 
+  Future<void> _sendCtrlV() async {
+    if (!Platform.isWindows) return;
+    void sendKey(int vk, {required bool keyUp}) {
+      final input = calloc<INPUT>(1);
+
+      input.ref.type = INPUT_KEYBOARD;
+      input.ref.ki.wVk = vk;
+      input.ref.ki.wScan = 0;
+      input.ref.ki.dwFlags = keyUp ? KEYEVENTF_KEYUP : 0;
+      input.ref.ki.time = 0;
+      input.ref.ki.dwExtraInfo = 0;
+
+      SendInput(1, input, sizeOf<INPUT>());
+
+      calloc.free(input);
+    }
+
+    // Ctrl down, V down/up, Ctrl up
+    sendKey(VK_CONTROL, keyUp: false);
+    sendKey(0x56, keyUp: false); // 'V'
+    sendKey(0x56, keyUp: true);
+    sendKey(VK_CONTROL, keyUp: true);
+
+    // หน่วงนิดให้ paste เสร็จ
+    await Future.delayed(const Duration(milliseconds: 10));
+
+    // Enter down/up
+    sendKey(VK_RETURN, keyUp: false);
+    sendKey(VK_RETURN, keyUp: true);
+  }
+
+  Future<void> _sendLeftEnter() async {
+    if (!Platform.isWindows) return;
+
+    void sendKey(int vk, {required bool keyUp}) {
+      final input = calloc<INPUT>(1);
+
+      input.ref.type = INPUT_KEYBOARD;
+      input.ref.ki.wVk = vk;
+      input.ref.ki.wScan = 0;
+      input.ref.ki.dwFlags = keyUp ? KEYEVENTF_KEYUP : 0;
+      input.ref.ki.time = 0;
+      input.ref.ki.dwExtraInfo = 0;
+
+      SendInput(1, input, sizeOf<INPUT>());
+      calloc.free(input);
+    }
+
+    // Left
+    sendKey(VK_LEFT, keyUp: false);
+    sendKey(VK_LEFT, keyUp: true);
+
+    // Enter
+    sendKey(VK_RETURN, keyUp: false);
+    sendKey(VK_RETURN, keyUp: true);
+  }
+
   // ====== color alternation stored in SharedPreferences ======
   Future<Color> _nextAltColor({
     required String counterKey,
@@ -110,8 +175,19 @@ class _HostPageState extends State<HostPage> {
         b: Colors.green,
       );
       if (!mounted) return;
+
+      // ✅ 1) copy S/N เข้า clipboard
+      final sn = (_latestBarcode ?? "").trim();
+      if (sn.isNotEmpty) {
+        await _copySnToClipboard(sn);
+
+        // ✅ 2) ส่ง Ctrl+V ไปยังหน้าจออื่นที่กำลัง active (Windows)
+        // (ถ้าคุณสลับไป Chrome แล้ว โค้ดนี้จะ paste ให้เลย)
+        await _sendCtrlV();
+      }
+
       setState(() {
-        _stockMsg = message; // ยิงสต๊อกสำเร็จ
+        _stockMsg = message;
         _stockColor = c;
       });
       return;
@@ -124,8 +200,12 @@ class _HostPageState extends State<HostPage> {
         b: Colors.yellow,
       );
       if (!mounted) return;
+
+      // ✅ already -> Left + Enter
+      await _sendLeftEnter();
+
       setState(() {
-        _stockMsg = message; // เช็คสต๊อกแล้ว
+        _stockMsg = message;
         _stockColor = c;
       });
       return;
@@ -138,6 +218,8 @@ class _HostPageState extends State<HostPage> {
       });
       return;
     }
+
+    await _sendLeftEnter();
 
     setState(() {
       _stockMsg = message; // ขายสินค้าหมด
