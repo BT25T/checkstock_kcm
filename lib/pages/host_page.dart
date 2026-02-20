@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/ws_server.dart';
 import 'dart:io';
+import 'package:url_launcher/url_launcher.dart';
 
 class HostPage extends StatefulWidget {
   const HostPage({super.key});
@@ -17,10 +18,26 @@ class _HostPageState extends State<HostPage> {
   String _status = "พร้อมใช้งาน";
   String? _latestBarcode;
 
+  static const String _checkedUrl =
+      "https://docs.google.com/spreadsheets/d/1ImxpMJi-z9IWMeYoIRci94ddEhap9_iZwa9FKyNYyUo/edit?gid=0#gid=0";
+  static const String _notCheckedUrl =
+      "https://docs.google.com/spreadsheets/d/1KSAHKkwuY02QOlmQdbXfNRJ7jGT4vS2DNaEZ3VCe368/edit?gid=0#gid=0";
+
   @override
   void initState() {
     super.initState();
     _init();
+  }
+
+  Future<void> _openLink(String url) async {
+    final uri = Uri.parse(url);
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("เปิดลิงก์ไม่สำเร็จ")),
+      );
+    }
   }
 
   Future<void> _init() async {
@@ -58,6 +75,27 @@ class _HostPageState extends State<HostPage> {
     });
   }
 
+  Widget _tinyLinkButton({
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      height: 26,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool connected = _latestBarcode != null;
@@ -72,7 +110,7 @@ class _HostPageState extends State<HostPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ===== Top row: IP / PORT / STATUS (same size) =====
+            // ===== Top row: IP / PORT(+buttons) / STATUS =====
             Row(
               children: [
                 Expanded(
@@ -82,12 +120,38 @@ class _HostPageState extends State<HostPage> {
                     style: headerStyle,
                   ),
                 ),
+                // PORT + 2 buttons (same line)
                 Expanded(
-                  flex: 3,
-                  child: Text(
-                    "PORT: $_port",
-                    style: headerStyle,
-                    textAlign: TextAlign.center,
+                  flex: 6,
+                  child: Align(
+                    alignment: Alignment.center,
+                    child: Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 10,
+                      runSpacing: 6,
+                      children: [
+                        Text("PORT: $_port", style: headerStyle),
+
+                        Text(
+                          "แก้ไขข้อมูลเช็คสต๊อก",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black.withOpacity(0.55),
+                          ),
+                        ),
+
+                        _tinyLinkButton(
+                          label: "เช็คสต๊อกแล้ว",
+                          onPressed: () => _openLink(_checkedUrl),
+                        ),
+
+                        _tinyLinkButton(
+                          label: "ยังไม่เช็คสต๊อก",
+                          onPressed: () => _openLink(_notCheckedUrl),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 Expanded(
@@ -126,7 +190,7 @@ class _HostPageState extends State<HostPage> {
                     ),
                     child: Text(
                       (_latestBarcode == null || _latestBarcode!.isEmpty)
-                          ? "----------" // placeholder 10 ตัว
+                          ? "----------"
                           : _latestBarcode!,
                       style: const TextStyle(
                         fontSize: 22,
@@ -137,14 +201,6 @@ class _HostPageState extends State<HostPage> {
                   ),
                 ),
               ],
-            ),
-
-            const SizedBox(height: 12),
-
-            // hint เล็กน้อย (ถ้าอยากเอาออกก็ลบได้)
-            Text(
-              "รอรับข้อมูลจาก Scanner (ครบ 10 ตัวจะขึ้นทันที)",
-              style: TextStyle(color: Colors.black.withOpacity(0.55)),
             ),
           ],
         ),

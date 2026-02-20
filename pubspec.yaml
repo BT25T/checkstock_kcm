@@ -37,9 +37,10 @@ dependencies:
   path_provider: ^2.1.4
   share_plus: ^10.0.3
   shared_preferences: ^2.2.3
+  url_launcher: ^6.2.6
   # realtime camera scan
   mobile_scanner: ^6.0.2
-
+  
   # decode QR from uploaded image
   google_mlkit_barcode_scanning: ^0.12.0
 
