@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'ws_channel_factory.dart';
 
 class WsClient {
   WebSocketChannel? _channel;
@@ -7,8 +8,17 @@ class WsClient {
 
   bool get isConnected => _connected;
 
-  Future<void> connect(Uri uri, {Function(dynamic)? onMessage}) async {
-    _channel = WebSocketChannel.connect(uri);
+  /// connect ด้วย uri ที่ส่งเข้ามา (เช่น ws://192.168.0.106:8090)
+  Future<void> connect(
+    Uri uri, {
+    void Function(dynamic message)? onMessage,
+    void Function(Object error)? onError,
+    void Function()? onDone,
+  }) async {
+    // ปิดของเก่าก่อน กันค้าง
+    await disconnect();
+
+    _channel = connectWs(uri);
     _connected = true;
 
     _channel!.stream.listen(
@@ -17,10 +27,13 @@ class WsClient {
       },
       onDone: () {
         _connected = false;
+        if (onDone != null) onDone();
       },
-      onError: (_) {
+      onError: (e) {
         _connected = false;
+        if (onError != null) onError(e);
       },
+      cancelOnError: true,
     );
   }
 
@@ -29,8 +42,16 @@ class WsClient {
     _channel!.sink.add(jsonEncode(data));
   }
 
-  void disconnect() {
-    _channel?.sink.close();
+  void sendRaw(String text) {
+    if (!_connected || _channel == null) return;
+    _channel!.sink.add(text);
+  }
+
+  Future<void> disconnect() async {
+    try {
+      await _channel?.sink.close();
+    } catch (_) {}
+    _channel = null;
     _connected = false;
   }
 }

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:web_socket_channel/io.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/ws_channel_factory.dart';
 
 class ScannerPage extends StatefulWidget {
   const ScannerPage({super.key});
@@ -16,7 +17,7 @@ class _ScannerPageState extends State<ScannerPage> {
   final TextEditingController _ipCtrl = TextEditingController();
   final TextEditingController _barcodeCtrl = TextEditingController();
 
-  IOWebSocketChannel? _channel;
+  WebSocketChannel? _channel;
   bool _connected = false;
   String _status = "ยังไม่เชื่อมต่อ";
 
@@ -41,7 +42,7 @@ class _ScannerPageState extends State<ScannerPage> {
     final uri = Uri.parse("ws://$ip:8090");
 
     try {
-      _channel = IOWebSocketChannel.connect(uri);
+      _channel = WebSocketChannel.connect(uri);
 
       _channel!.stream.listen(
         (event) {
